@@ -2,7 +2,7 @@ import type { Plugin } from "@opencode/plugin";
 import { Schema } from "effect";
 import { execFile } from "node:child_process";
 import { join } from "node:path";
-import { type Scope, scopeArgs, sessionScope } from "./scope.ts";
+import { type Scope, type Storage, projectStorage, scopeArgs, sessionScope, storageArgs } from "./scope.ts";
 import { type Command, embeddingArgs, pythonEnv, pythonExecutable, run } from "./runtime.ts";
 import type { CaptureCoordinator } from "./capture.ts";
 
@@ -15,11 +15,11 @@ export const transcriptInput = Schema.Struct({
   limit: Schema.optionalKey(integer(1, 50)), context: Schema.optionalKey(integer(0, 10)),
 });
 
-export async function registerTools(ctx: Plugin.Context, scope: Scope, collection: string, command: Command, capture: Pick<CaptureCoordinator, "recover">, pluginDir: string, db: string) {
+export async function registerTools(ctx: Plugin.Context, scope: Scope, collection: string, command: Command, capture: Pick<CaptureCoordinator, "recover">, pluginDir: string, db: string, storage: Storage = projectStorage(scope.root, collection)) {
   const query = (args: string[], sessionID: string, signal: AbortSignal) =>
     run([pythonExecutable()], [join(pluginDir, "scripts/capture.py"), ...scopeArgs(scope), "--db", db,
-      "--collection", collection, "--command", JSON.stringify(command),
-      "--query", JSON.stringify(args), "--session-id", sessionID], scope.root, signal)
+      ...storageArgs(storage), "--collection", collection, "--command", JSON.stringify(command),
+      "--query", JSON.stringify(args), "--session-id", sessionID], scope.root, signal, undefined, storage.dir)
       .catch(() => { throw new Error("MemSearch recall failed; check CLI/configuration and .memsearch/.index-state.json."); });
   return ctx.tool.transform(editor => {
     editor.add({

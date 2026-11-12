@@ -51,11 +51,11 @@ export function pythonEnv() {
   return { ...process.env, PYTHONIOENCODING: "utf-8" };
 }
 
-export function run(command: Command, args: string[], cwd: string, signal?: AbortSignal, timeout = 120_000): Promise<string> {
+export function run(command: Command, args: string[], cwd: string, signal?: AbortSignal, timeout = 120_000, memsearchDir = join(cwd, ".memsearch")): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(command[0], [...command.slice(1), ...args], {
       cwd, signal, timeout, maxBuffer: 2 * 1024 * 1024, encoding: "utf8",
-      env: { ...pythonEnv(), MEMSEARCH_NO_WATCH: "1", MEMSEARCH_DIR: join(cwd, ".memsearch") },
+      env: { ...pythonEnv(), MEMSEARCH_NO_WATCH: "1", MEMSEARCH_DIR: memsearchDir },
     }, (error, stdout) => {
       // Provider errors may contain request details. Keep these out of host context.
       if (error) reject(new Error(`MemSearch ${args[0] ?? "command"} failed; check CLI/configuration and .memsearch/.index-state.json.`));

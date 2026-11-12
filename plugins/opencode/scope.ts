@@ -1,10 +1,45 @@
 import type { Plugin } from "@opencode/plugin";
 import { realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
+import { deriveCollectionNameFromScript } from "./derive-collection.ts";
 import { projectRoot, pythonExecutable, run } from "./runtime.ts";
 
 export interface Scope { root: string; projectID: string; workspaceID?: string }
+/** Where memories live. Distinct from Scope, which decides who may read which session. */
+export interface Storage {
+  /** Memsearch directory passed to the CLI as MEMSEARCH_DIR. */
+  dir: string;
+  /** Markdown journals, indexed into `collection`. */
+  memory: string;
+  collection: string;
+  /** Per-project capture lock and checkpoints; never shared between projects. */
+  stateDir: string;
+}
+
+/**
+ * Default is one global store shared by every project: MEMSEARCH_DIR when set,
+ * else ~/.memsearch, with the collection derived from that directory.
+ * MEMSEARCH_PROJECT_SCOPE=1 restores per-project <root>/.memsearch storage.
+ */
+export function resolveStorage(root: string, deriveScript: string, env: NodeJS.ProcessEnv = process.env): Storage {
+  if (env.MEMSEARCH_PROJECT_SCOPE === "1") return projectStorage(root, deriveCollectionNameFromScript(deriveScript, root));
+  const dir = resolve(env.MEMSEARCH_DIR?.trim() || join(homedir(), ".memsearch"));
+  const id = createHash("sha256").update(root).digest("hex").slice(0, 16);
+  return { dir, memory: join(dir, "memory"), collection: deriveCollectionNameFromScript(deriveScript, dir),
+    stateDir: join(dir, ".opencode-projects", id) };
+}
+
+export function projectStorage(root: string, collection: string): Storage {
+  const dir = join(root, ".memsearch");
+  return { dir, memory: join(dir, "memory"), collection, stateDir: dir };
+}
+
+export function storageArgs(storage: Storage): string[] {
+  return ["--memsearch-dir", storage.dir, "--state-dir", storage.stateDir];
+}
+
 export function hostScope(ctx: Pick<Plugin.Context, "location">): Scope {
   const location = ctx.location;
   return {

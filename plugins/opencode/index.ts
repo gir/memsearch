@@ -5,9 +5,8 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { CaptureCoordinator, helperRunner } from "./capture.ts";
 import { getRecentMemories, MEMSEARCH_SYSTEM_MARKER, mergeSystemMemoryContext } from "./context.ts";
-import { deriveCollectionNameFromScript } from "./derive-collection.ts";
 import { detectCommand, run } from "./runtime.ts";
-import { databasePath, hostScope, sessionScope } from "./scope.ts";
+import { databasePath, hostScope, resolveStorage, sessionScope } from "./scope.ts";
 import { registerSkills } from "./skills.ts";
 import { registerTools } from "./tools.ts";
 
@@ -24,9 +23,10 @@ export default Plugin.define({
     const scope = hostScope(ctx);
     const db = databasePath(ctx.app.channel);
     const command = detectCommand();
-    const collection = deriveCollectionNameFromScript(join(pluginDir, "scripts/derive-collection.sh"), scope.root);
-    await run(command, ["config", "get", "milvus.collection", "--default-collection", collection], scope.root, undefined, 15_000);
-    const capture = new CaptureCoordinator(helperRunner(ctx, pluginDir, scope, db, collection, command));
+    const storage = resolveStorage(scope.root, join(pluginDir, "scripts/derive-collection.sh"));
+    const collection = storage.collection;
+    await run(command, ["config", "get", "milvus.collection", "--default-collection", collection], scope.root, undefined, 15_000, storage.dir);
+    const capture = new CaptureCoordinator(helperRunner(ctx, pluginDir, scope, db, collection, command, storage));
     const events = new AbortController();
     const registrations: { dispose(): Promise<void> }[] = [];
     try {
@@ -34,7 +34,7 @@ export default Plugin.define({
       await capture.initialize();
       if (!capture.ready) throw new Error("MemSearch could not establish its V2 capture baseline. Check host database/schema and CLI configuration before enabling the plugin.");
       registrations.push(await registerSkills(ctx, pluginDir));
-      registrations.push(await registerTools(ctx, scope, collection, command, capture, pluginDir, db));
+      registrations.push(await registerTools(ctx, scope, collection, command, capture, pluginDir, db, storage));
       registrations.push(await ctx.session.hook("prompt", async input => {
         await sessionScope(ctx, scope, input.sessionID, db, pluginDir);
         await capture.recover();
@@ -42,8 +42,8 @@ export default Plugin.define({
       registrations.push(await ctx.session.hook("context", async input => {
         await sessionScope(ctx, scope, input.sessionID, db, pluginDir);
         const pending = await capture.recover();
-        const hint = await run(command, ["skills", "status", "--hint"], scope.root, undefined, 5000).catch(() => "");
-        const memory = getRecentMemories(join(scope.root, ".memsearch/memory"));
+        const hint = await run(command, ["skills", "status", "--hint"], scope.root, undefined, 5000, storage.dir).catch(() => "");
+        const memory = getRecentMemories(storage.memory);
         input.system = mergeSystemMemoryContext(input.system, [MEMSEARCH_SYSTEM_MARKER,
           "Use memory_search → memory_get → memory_transcript for relevant history. Skills: memory-recall, memory-config, memory-to-skill.",
           memory, hint, pending].filter(Boolean).join("\n\n"));
@@ -69,7 +69,9 @@ export default Plugin.define({
         }
       } catch { /* The recovery scan covers dropped streams as well as shutdown. */ }
     })();
-    const timer = setInterval(() => { void capture.request(true); }, 15_000);
+    // Local change: was 15_000. Every OpenCode process ran a Python capture pass every 15 s; session events
+    // and the prompt hook already trigger capture.
+    const timer = setInterval(() => { void capture.request(true); }, 300_000);
     timer.unref();
     return async () => {
       clearInterval(timer); events.abort();

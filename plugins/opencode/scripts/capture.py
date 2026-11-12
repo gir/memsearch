@@ -144,10 +144,13 @@ def summarize(turn, cfg, command, root: str, native=native_request) -> str:
 class CaptureStore:
     """Derived progress only. Host rows and existing journals are never reset."""
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, memsearch_dir: str | None = None, state_dir: str | None = None):
+        """Memories live in memsearch_dir (shared or per-project); lock and
+        checkpoints live in state_dir, which stays per project."""
         self.root = Path(root)
-        self.memory = self.root / ".memsearch/memory"
-        state = self.root / ".memsearch"
+        base = Path(memsearch_dir) if memsearch_dir else self.root / ".memsearch"
+        self.memory = base / "memory"
+        state = Path(state_dir) if state_dir else base
         state.mkdir(parents=True, exist_ok=True)
         self.lock = acquire_lock(state / ".capture-v2.lock")
         self.db = sqlite3.connect(state / "opencode-turns.db", timeout=5)
@@ -364,6 +367,8 @@ def main():
     parser.add_argument("--project-id", required=True)
     parser.add_argument("--workspace-id")
     parser.add_argument("--db", required=True)
+    parser.add_argument("--memsearch-dir", help="Memory storage directory (default: <project-dir>/.memsearch)")
+    parser.add_argument("--state-dir", help="Per-project lock/checkpoint directory (default: the memsearch dir)")
     parser.add_argument("--collection", required=True)
     parser.add_argument("--command", required=True, help="JSON argv for the memsearch executable")
     parser.add_argument("--initialize", action="store_true")
@@ -388,7 +393,7 @@ def main():
             if not args.session_id or not query or query[0] not in {"search", "expand"}:
                 raise ValueError("A recall query requires its requesting session and search/expand argv.")
             # Recheck scope after waiting for capture, before any CLI access.
-            with contextlib.closing(CaptureStore(args.project_dir)):
+            with contextlib.closing(CaptureStore(args.project_dir, args.memsearch_dir, args.state_dir)):
                 with contextlib.closing(open_source(db_path)) as conn:
                     session_row(conn, args.session_id, scope)
                 with cli_lock():
@@ -404,7 +409,7 @@ def main():
             runner.run_maintenance(
                 "opencode",
                 Path(scope.root),
-                str(Path(scope.root) / ".memsearch"),
+                args.memsearch_dir or str(Path(scope.root) / ".memsearch"),
                 cfg,
                 native_runner=lambda ctx, prompt: native_request(prompt, ctx.task_config.model, ctx.task),
             )
@@ -413,7 +418,7 @@ def main():
         if not Path(db_path).exists() and args.initialize:
             emit({"type": "done", "captured": 0})
             return 0
-        with contextlib.closing(CaptureStore(args.project_dir)) as store:
+        with contextlib.closing(CaptureStore(args.project_dir, args.memsearch_dir, args.state_dir)) as store:
             with contextlib.closing(open_source(db_path)) as conn:
                 source, count = capture_batch(
                     conn,
