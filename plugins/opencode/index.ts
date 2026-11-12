@@ -41,7 +41,9 @@ export default Plugin.define({
       }));
       registrations.push(await ctx.session.hook("context", async input => {
         await sessionScope(ctx, scope, input.sessionID, db, pluginDir);
-        const pending = await capture.recover();
+        // Do not wait for a capture pass on every model request; surface the last recorded error instead.
+        void capture.request().catch(() => {});
+        const pending = capture.error;
         const hint = await run(command, ["skills", "status", "--hint"], scope.root, undefined, 5000, storage.dir).catch(() => "");
         const memory = getRecentMemories(storage.memory);
         input.system = mergeSystemMemoryContext(input.system, [MEMSEARCH_SYSTEM_MARKER,
