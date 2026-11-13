@@ -52,7 +52,7 @@ Configured collections override the derived per-project fallback through `--defa
 |---|---|
 | `memory_search(query, top_k?)` | L1 JSON results with `chunk_hash` for L2; `top_k` is 1–20. |
 | `memory_get(chunk_hash)` | L2 full Markdown section, with transcript anchors. |
-| `memory_transcript(session_id, turn_id?, db_path?, limit?, context?)` | L3 original dialogue; limit 1–50, context 0–10. |
+| `memory_transcript(session_id, turn_id?, db_path?, limit?, context?)` | L3 original dialogue; limit 1–50, context 0–10 (default 0: exactly the requested turn). |
 
 Tools validate the requesting session's ownership, including its persisted workspace. L3 uses the current host database when `db_path` is omitted; an explicit `db_path` selects the database referenced by the anchor. Copy that path exactly when supplying it. A lookup failure in the selected database is reported without retrying against the default database. Turn IDs match exactly or by an unambiguous prefix. L3 does not require a capture sidecar. Search and expansion remain useful when the original transcript is unavailable.
 
