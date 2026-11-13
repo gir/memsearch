@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir as osTmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -266,6 +267,14 @@ test("V2 setup, completion event, finite capture, cleanup and fresh context work
     await hooks.get("context")!(later);
     assert.match(later.system[0].text, /candidate hint/);
     assert.equal(nativeCalls, 1);
+    // Regression guard: while the plugin is alive no resident process may hold the
+    // local Milvus database, so a separate search process can always open it.
+    const milvus = join(root, ".memsearch/milvus.db");
+    const probe = `import sys\nsys.path.insert(0, ${JSON.stringify(join(repo, "src"))})\nfrom memsearch.store import MilvusStore\nfor _ in range(2):\n    s = MilvusStore(uri=${JSON.stringify(milvus)}, dimension=4, _create_if_missing=True)\n    s.close()\nprint("opened")`;
+    const opened = await run([join(repo, ".venv/bin/python")], ["-c", probe], root, undefined, 60_000, join(root, ".memsearch"));
+    assert.equal(opened, "opened");
+    const holders = spawnSync("lsof", ["+D", join(root, ".memsearch")], { encoding: "utf8" }).stdout.trim();
+    assert.equal(holders, "", "no process may keep milvus.db open while the plugin is alive");
   } finally { await cleanup?.(); }
   assert.equal(disposed, 4);
   // Durable work plus an execution event already queued when setup begins.
