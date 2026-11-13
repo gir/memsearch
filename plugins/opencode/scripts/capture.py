@@ -68,6 +68,55 @@ def cli_lock():
         yield
 
 
+INDEX_STAMP = ".opencode-last-index"
+MAX_INDEX_PATHS = 200
+
+
+def index_interval() -> float:
+    try:
+        return float(os.environ.get("MEMSEARCH_INDEX_INTERVAL", "300"))
+    except ValueError:
+        return 300.0
+
+
+def index_changed(memory: Path, template: list[str], now: float | None = None) -> str:
+    """Debounced incremental index; call while holding cli_lock().
+
+    Every `memsearch index` run reloads the embedding model, so run it at most once per
+    interval (shared by all sessions through a stamp beside the memory directory) and
+    only for Markdown files modified since the previous successful run. The first run
+    (no stamp) indexes the whole directory, which also prunes deleted files.
+    Returns "debounced" (leave the source dirty), "clean" (nothing changed),
+    "indexed" or "failed". `template` contains a "{paths}" placeholder argument.
+    """
+    now = datetime.now().timestamp() if now is None else now
+    stamp = memory.parent / INDEX_STAMP
+    try:
+        last = float(stamp.read_text().strip())
+    except (OSError, ValueError):
+        last = None
+    if last is not None and 0 <= now - last < index_interval():
+        return "debounced"
+    if last is None:
+        targets = [str(memory)]
+    else:
+        # Small slack covers coarse filesystem timestamps for writes racing the previous run.
+        targets = sorted(str(f) for f in memory.rglob("*.md") if f.stat().st_mtime >= last - 2)
+        if not targets:
+            stamp.write_text(str(now))
+            return "clean"
+        if len(targets) > MAX_INDEX_PATHS:
+            targets = [str(memory)]
+    at = template.index("{paths}")
+    result = subprocess.run(
+        [*template[:at], *targets, *template[at + 1 :]], capture_output=True, timeout=120, check=False
+    )
+    if result.returncode != 0:
+        return "failed"
+    stamp.write_text(str(now))
+    return "indexed"
+
+
 class Cancelled(BaseException):
     """Host shutdown is retryable, unlike a completed summarizer failure."""
 
@@ -437,23 +486,16 @@ def main():
             dirty = store.db.execute("SELECT index_dirty FROM v2_sources WHERE source=?", (source,)).fetchone()[0]
             if dirty and store.memory.exists():
                 with cli_lock():
-                    result = subprocess.run(
-                        [
-                            *command,
-                            "index",
-                            str(store.memory),
-                            "--default-collection",
-                            args.collection,
-                            *(["--provider", "onnx"] if args.default_onnx else []),
-                        ],
-                        capture_output=True,
-                        timeout=120,
-                        check=False,
+                    outcome = index_changed(
+                        store.memory,
+                        [*command, "index", "{paths}", "--default-collection", args.collection]
+                        + (["--provider", "onnx"] if args.default_onnx else []),
                     )
-                if result.returncode != 0:
+                if outcome == "failed":
                     raise RuntimeError("Memory indexing failed; the journal is saved and indexing will retry.")
-                with store.db:
-                    store.db.execute("UPDATE v2_sources SET index_dirty=0 WHERE source=?", (source,))
+                if outcome != "debounced":
+                    with store.db:
+                        store.db.execute("UPDATE v2_sources SET index_dirty=0 WHERE source=?", (source,))
         emit({"type": "done", "captured": count})
         return 0
     except Cancelled:

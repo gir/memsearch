@@ -1072,3 +1072,46 @@ def test_lock_released_on_process_exit(tmp_path):
                     waiter.kill()
         finally:
             owner.kill()
+
+
+def _index_recorder(tmp_path, code=0):
+    log = tmp_path / "index-calls.txt"
+    cli = tmp_path / "rec.py"
+    cli.write_text(f"import sys\nopen({str(log)!r}, 'a').write(' '.join(sys.argv[2:]) + '\\n')\nsys.exit({code})\n")
+    return log, [sys.executable, str(cli), "index", "{paths}", "--default-collection", "c"]
+
+
+def test_index_changed_is_debounced_and_incremental(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setenv("MEMSEARCH_INDEX_INTERVAL", "300")
+    memory = tmp_path / "base" / "memory"
+    memory.mkdir(parents=True)
+    old, new = memory / "2026-01-01.md", memory / "2026-01-02.md"
+    old.write_text("a")
+    new.write_text("b")
+    log, template = _index_recorder(tmp_path)
+
+    assert capture.index_changed(memory, template, now=1000.0) == "indexed"
+    assert log.read_text().splitlines() == [f"{memory} --default-collection c"]
+
+    os.utime(old, (500, 500))
+    os.utime(new, (1100, 1100))
+    assert capture.index_changed(memory, template, now=1100.0) == "debounced"
+    assert len(log.read_text().splitlines()) == 1
+
+    assert capture.index_changed(memory, template, now=1400.0) == "indexed"
+    assert log.read_text().splitlines()[-1] == f"{new} --default-collection c"
+
+    assert capture.index_changed(memory, template, now=1800.0) == "clean"
+    assert len(log.read_text().splitlines()) == 2
+
+
+def test_index_changed_failure_keeps_retrying(tmp_path):
+    memory = tmp_path / "base" / "memory"
+    memory.mkdir(parents=True)
+    (memory / "a.md").write_text("a")
+    log, template = _index_recorder(tmp_path, code=1)
+    assert capture.index_changed(memory, template, now=1000.0) == "failed"
+    assert capture.index_changed(memory, template, now=1001.0) == "failed"
+    assert len(log.read_text().splitlines()) == 2
