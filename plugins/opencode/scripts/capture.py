@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from opencode_turns import Scope, build_turns, get_db_path, open_source, project_root, session_ids, session_row
+from watch_lock import watcher_alive
 
 UNAVAILABLE = (
     "- Memory summary unavailable: summarizer failed or returned no usable output; "
@@ -484,7 +485,11 @@ def main():
                 emit({"type": "done", "captured": 0})
                 return 0
             dirty = store.db.execute("SELECT index_dirty FROM v2_sources WHERE source=?", (source,)).fetchone()[0]
-            if dirty and store.memory.exists():
+            if dirty and store.memory.exists() and watcher_alive(store.memory.parent):
+                # The resident watcher indexes file changes itself; another index run would only reload the model.
+                with store.db:
+                    store.db.execute("UPDATE v2_sources SET index_dirty=0 WHERE source=?", (source,))
+            elif dirty and store.memory.exists():
                 with cli_lock():
                     outcome = index_changed(
                         store.memory,

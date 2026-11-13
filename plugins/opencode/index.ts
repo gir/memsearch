@@ -10,6 +10,7 @@ import { detectCommand, run } from "./runtime.ts";
 import { databasePath, hostScope, resolveStorage, sessionScope } from "./scope.ts";
 import { registerSkills } from "./skills.ts";
 import { registerTools } from "./tools.ts";
+import { ensureWatcher } from "./watcher.ts";
 
 const pluginDir = dirname(realpathSync(fileURLToPath(import.meta.url)));
 
@@ -75,7 +76,8 @@ export default Plugin.define({
     })();
     // Local change: was 15_000. Every OpenCode process ran a Python capture pass every 15 s; session events
     // and the prompt hook already trigger capture.
-    const timer = setInterval(() => { void capture.request(true); }, 300_000);
+    ensureWatcher(pluginDir, scope.root, collection, command, storage);
+    const timer = setInterval(() => { void capture.request(true); ensureWatcher(pluginDir, scope.root, collection, command, storage); }, 300_000);
     timer.unref();
     return async () => {
       clearInterval(timer); events.abort();

@@ -16,6 +16,7 @@
     "tools.ts",
     "skills.ts",
     "runtime.ts",
+    "watcher.ts",
     "derive-collection.ts",
     "scripts/*.py",
     "scripts/*.sh",

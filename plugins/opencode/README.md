@@ -88,3 +88,9 @@ uv run python -m pytest tests/test_opencode_turns.py tests/test_opencode_parse_t
 Unit/fixture checks do not prove real TUI capture and fresh-session tool-backed recall. Source E2E and published-artifact E2E must be recorded separately.
 
 For loading or transcript lookup problems, see [troubleshooting](https://zilliztech.github.io/memsearch/platforms/opencode/memory-tools/#troubleshooting).
+
+## Resident watcher and indexing
+
+- On startup and on every capture timer tick the plugin runs `scripts/watch.py`, which takes a non-blocking lock on `<memsearch dir>/.watch.lock` and replaces itself with one detached `memsearch watch` over the shared memory directory. Sessions that find the lock held exit immediately, so any number of OpenCode sessions share a single watcher, and the next session timer restarts it after a crash or reboot. Set `MEMSEARCH_PLUGIN_WATCH=0` to disable it.
+- While a watcher is running, capture does not run its own index pass. Without one, capture indexes at most once per `MEMSEARCH_INDEX_INTERVAL` seconds (default 300), passing only Markdown files changed since the previous run.
+- The skill hint is refreshed in the background at most every 10 minutes instead of on each model call.
