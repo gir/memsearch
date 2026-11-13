@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { CaptureCoordinator, helperRunner } from "./capture.ts";
+import { HintCache } from "./hint.ts";
 import { getRecentMemories, MEMSEARCH_SYSTEM_MARKER, mergeSystemMemoryContext } from "./context.ts";
 import { detectCommand, run } from "./runtime.ts";
 import { databasePath, hostScope, resolveStorage, sessionScope } from "./scope.ts";
@@ -27,6 +28,7 @@ export default Plugin.define({
     const collection = storage.collection;
     await run(command, ["config", "get", "milvus.collection", "--default-collection", collection], scope.root, undefined, 15_000, storage.dir);
     const capture = new CaptureCoordinator(helperRunner(ctx, pluginDir, scope, db, collection, command, storage));
+    const hints = new HintCache(() => run(command, ["skills", "status", "--hint"], scope.root, undefined, 5000, storage.dir));
     const events = new AbortController();
     const registrations: { dispose(): Promise<void> }[] = [];
     try {
@@ -44,7 +46,7 @@ export default Plugin.define({
         // Do not wait for a capture pass on every model request; surface the last recorded error instead.
         void capture.request().catch(() => {});
         const pending = capture.error;
-        const hint = await run(command, ["skills", "status", "--hint"], scope.root, undefined, 5000, storage.dir).catch(() => "");
+        const hint = hints.get();
         const memory = getRecentMemories(storage.memory);
         input.system = mergeSystemMemoryContext(input.system, [MEMSEARCH_SYSTEM_MARKER,
           "Use memory_search → memory_get → memory_transcript for relevant history. Skills: memory-recall, memory-config, memory-to-skill.",

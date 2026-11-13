@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir as osTmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -12,6 +12,9 @@ import { loadSkills, registerSkills } from "./skills.ts";
 import { registerTools, searchInput, transcriptInput } from "./tools.ts";
 import { databasePath, hostScope, sessionScope } from "./scope.ts";
 import { run } from "./runtime.ts";
+
+// macOS temp dirs live behind the /var -> /private/var symlink; scope resolves real paths.
+const tmpdir = () => realpathSync(osTmpdir());
 
 const pluginDir = dirname(fileURLToPath(import.meta.url));
 
@@ -257,7 +260,11 @@ test("V2 setup, completion event, finite capture, cleanup and fresh context work
     const input = { sessionID: "session", system: [{ type: "text", text: "host base" }] };
     await hooks.get("context")!(input);
     assert.match(input.system[0].text, /Lifecycle fixture captured/);
-    assert.match(input.system[0].text, /candidate hint/);
+    // The skills hint loads in the background and appears on a later model call.
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const later = { sessionID: "session", system: [{ type: "text", text: "host base" }] };
+    await hooks.get("context")!(later);
+    assert.match(later.system[0].text, /candidate hint/);
     assert.equal(nativeCalls, 1);
   } finally { await cleanup?.(); }
   assert.equal(disposed, 4);
@@ -273,10 +280,12 @@ test("V2 setup, completion event, finite capture, cleanup and fresh context work
   const nextCleanup = await plugin.setup(ctx);
   try {
     const input = { sessionID: "session", system: [] };
+    // The context hook no longer waits for capture; the prompt hook is the recovery barrier.
+    await hooks.get("prompt")!({ sessionID: "session" });
     await hooks.get("context")!(input);
     assert.match(JSON.stringify(input.system), /Lifecycle fixture captured/);
     assert.equal(nativeCalls, 2);
-    const journal = getRecentMemories(join(project, ".memsearch/memory"));
+    const journal = getRecentMemories(join(root, ".memsearch/memory"));
     assert.doesNotMatch(journal, /summary unavailable/);
     assert.equal(journal.split("Lifecycle fixture captured.").length - 1, 2);
   } finally { await nextCleanup?.(); }

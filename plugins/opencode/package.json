@@ -10,6 +10,7 @@
   "files": [
     "index.ts",
     "context.ts",
+    "hint.ts",
     "scope.ts",
     "capture.ts",
     "tools.ts",
