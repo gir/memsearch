@@ -48,7 +48,7 @@ export async function registerTools(ctx: Plugin.Context, scope: Scope, collectio
         const current = await sessionScope(ctx, scope, context.sessionID, db, pluginDir);
         const output = await new Promise<string>(resolve => {
           execFile(pythonExecutable(), [join(pluginDir, "scripts/parse-transcript.py"), args.session_id, ...scopeArgs(current),
-            "--db", args.db_path ?? db, "--limit", String(args.limit ?? 20), "--context", String(args.context ?? 3),
+            "--db", args.db_path ?? db, "--limit", String(args.limit ?? 20), "--context", String(args.context ?? 0),
             ...(args.turn_id ? ["--turn", args.turn_id] : []),
           ], { cwd: current.root, env: pythonEnv(), signal: context.signal, timeout: 15_000, maxBuffer: 2 * 1024 * 1024, encoding: "utf8" },
           (error, stdout, stderr) => resolve(error ? stderr.trim().slice(0, 1500) || "Transcript unavailable: helper failed or was cancelled." : stdout.trim()));

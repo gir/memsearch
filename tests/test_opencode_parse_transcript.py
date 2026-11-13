@@ -25,6 +25,32 @@ def test_readonly_explicit_escaped_db_and_turn_context(tmp_path):
     f.conn.close()
 
 
+def test_turn_without_context_returns_exactly_that_turn(tmp_path):
+    f = Fixture(tmp_path / "project")
+    for offset in (0, 30, 60):
+        f.turn(offset)
+    text = parser.parse_session("session", f.scope, str(f.path), turn_id="msg32")
+    assert text.count("=== Turn ") == 1 and "=== Turn msg32 ===" in text
+    argv = [
+        sys.executable,
+        str(SCRIPTS / "parse-transcript.py"),
+        "session",
+        "--project-dir",
+        str(f.root),
+        "--project-id",
+        "project",
+        "--db",
+        str(f.path),
+        "--turn",
+        "msg32",
+    ]
+    result = subprocess.run(argv, capture_output=True, text=True)
+    assert result.returncode == 0 and result.stdout.count("=== Turn ") == 1
+    wider = subprocess.run([*argv, "--context", "1"], capture_output=True, text=True)
+    assert wider.stdout.count("=== Turn ") == 3
+    f.conn.close()
+
+
 def test_missing_legacy_and_unmigrated_diagnostics(tmp_path):
     with pytest.raises(reader.TranscriptError, match="not found"):
         reader.open_source(str(tmp_path / "absent.db"))

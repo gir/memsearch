@@ -11,7 +11,7 @@ import sys
 from opencode_turns import Scope, TranscriptError, build_turns, find_turn_index, get_db_path, open_source, session_row
 
 
-def parse_session(session_id: str, scope: Scope, db_path: str, *, limit=20, turn_id=None, context=3) -> str:
+def parse_session(session_id: str, scope: Scope, db_path: str, *, limit=20, turn_id=None, context=0) -> str:
     with contextlib.closing(open_source(db_path)) as conn:
         session_row(conn, session_id, scope)
         turns = build_turns(conn, session_id)
@@ -45,7 +45,12 @@ def main() -> int:
     parser.add_argument("--channel", default="latest")
     parser.add_argument("--turn")
     parser.add_argument("--limit", type=bounded_int(1, 50), default=20)
-    parser.add_argument("--context", type=bounded_int(0, 10), default=3)
+    parser.add_argument(
+        "--context",
+        type=bounded_int(0, 10),
+        default=0,
+        help="Neighbouring turns on each side of --turn (default: only that turn)",
+    )
     args = parser.parse_args()
     try:
         text = parse_session(

@@ -9,7 +9,7 @@ Search memories relevant to the user's current question. The plugin's tools reso
 
 1. Use `memory_search` with a concrete query and `top_k: 5`. It returns text containing a JSON array of objects with `chunk_hash`, `content` and `source`. When calling through `execute`, return the search result and inspect its text before selecting hashes. Evaluate relevance before expanding results.
 2. Use `memory_get` with the most promising `chunk_hash` values to read full Markdown sections.
-3. For claims requiring original dialogue, use `memory_transcript` with `session_id`, `turn_id` and `db_path` from the expanded `session:` / `turn:` / `db:` anchor. Set `context: 3`; for an anchor without a turn, use `limit: 10`.
+3. For claims requiring original dialogue, use `memory_transcript` with `session_id`, `turn_id` and `db_path` from the expanded `session:` / `turn:` / `db:` anchor. Omit `context` to get exactly that turn; set `context: 3` only when you also need the surrounding turns. For an anchor without a turn, use `limit: 10`.
    - If OpenCode transcript lookup fails after an upgrade, distinguish an incompatible host/plugin pair, an unavailable database or session/turn, and an incomplete V1-to-V2 database migration. See [OpenCode diagnostics](../memory-config/references/opencode.md), also used by `memory-config`. Check the referenced conversation only; a lookup failure does not justify scanning unrelated transcripts.
    - Keep existing markdown and `session:` / `turn:` / `db:` anchors unchanged. Return useful search/expand results with the L3 limitation stated. If host migration is needed, direct the user to OpenCode's migration guidance; do not migrate the database or rewrite anchors during recall. Do not describe a summary as verified original dialogue.
 
